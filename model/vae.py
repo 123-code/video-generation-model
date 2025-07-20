@@ -1,10 +1,10 @@
-import torch 
+import torch
 import torch.nn as nn
-from model.Blocks import DownBlock,MidBlock,UpBlock 
-from model.lpips import LPIPS 
+from Bocks import DownBlock3D, MidBlock3D, UpBlock3D
+from lpips import LPIPS
 
-class VAE(nn.Module):
-    def __init__(self,im_channels,model_config):
+class VAE3D(nn.Module):
+    def __init__(self, im_channels, model_config):
         super().__init__()
         self.down_channels = model_config['down_channels']
         self.mid_channels = model_config['mid_channels']
@@ -22,13 +22,14 @@ class VAE(nn.Module):
         assert len(self.down_sample) == len(self.down_channels) - 1
         assert len(self.attns) == len(self.down_channels) - 1
         self.up_sample = list(reversed(self.down_sample))
-        self.encoder_conv_in = nn.Conv2d(im_channels,self.down_channels[0],kernel_size=3,padding=(1,1))
+
+        self.encoder_conv_in = nn.Conv3d(im_channels, self.down_channels[0], kernel_size=(3, 3, 3), padding=(1, 1, 1))
         
         self.encoder_layers = nn.ModuleList([])
-        for i in range(len(self.down_channels)-1):
-            self.encoder_layers.append(DownBlock(
+        for i in range(len(self.down_channels) - 1):
+            self.encoder_layers.append(DownBlock3D(
                 self.down_channels[i],
-                self.down_channels[i+1],
+                self.down_channels[i + 1],
                 t_emb_dim=None,
                 down_sample=self.down_sample[i],
                 num_heads=self.num_heads,
@@ -37,37 +38,37 @@ class VAE(nn.Module):
                 norm_channels=self.norm_channels
             ))
         self.encoder_mids = nn.ModuleList([])
-        for i in range(len(self.mid_channels)-1):
-            self.encoder_mids.append(MidBlock(self.mid_channels[i],self.mid_channels[i+1],
-            t_emb_dim=None,
-            num_heads=self.num_heads,
-            num_layers=self.num_mid_layers,
-            norm_channels=self.norm_channels))
+        for i in range(len(self.mid_channels) - 1):
+            self.encoder_mids.append(MidBlock3D(self.mid_channels[i], self.mid_channels[i + 1],
+                                                t_emb_dim=None,
+                                                num_heads=self.num_heads,
+                                                num_layers=self.num_mid_layers,
+                                                norm_channels=self.norm_channels))
 
-        self.encoder_norm_out = nn.GroupNorm(self.norm_channels,self.down_channels[-1])
-        self.encoder_conv_out = nn.Conv2d(self.down_channels[-1],2 * self.z_channels,kernel_size=3,padding=1)
-        self.pre_quant_conv = nn.Conv2d(2 * self.z_channels,2 * self.z_channels,kernel_size=1)
-        self.post_quant_conv = nn.Conv2d(self.z_channels,self.z_channels,kernel_size=1)
-        self.decoder_conv_in = nn.Conv2d(self.z_channels,self.mid_channels[-1],kernel_size=3,padding=(1,1))
+        self.encoder_norm_out = nn.GroupNorm(self.norm_channels, self.down_channels[-1])
+        self.encoder_conv_out = nn.Conv3d(self.down_channels[-1], 2 * self.z_channels, kernel_size=(3, 3, 3), padding=(1, 1, 1))
+        self.pre_quant_conv = nn.Conv3d(2 * self.z_channels, 2 * self.z_channels, kernel_size=1)
+        self.post_quant_conv = nn.Conv3d(self.z_channels, self.z_channels, kernel_size=1)
+        self.decoder_conv_in = nn.Conv3d(self.z_channels, self.mid_channels[-1], kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.decoder_mids = nn.ModuleList([])
         for i in reversed(range(1, len(self.mid_channels))):
-            self.decoder_mids.append(MidBlock(self.mid_channels[i], self.mid_channels[i - 1],
-                                              t_emb_dim=None,
-                                              num_heads=self.num_heads,
-                                              num_layers=self.num_mid_layers,
-                                              norm_channels=self.norm_channels))
+            self.decoder_mids.append(MidBlock3D(self.mid_channels[i], self.mid_channels[i - 1],
+                                                t_emb_dim=None,
+                                                num_heads=self.num_heads,
+                                                num_layers=self.num_mid_layers,
+                                                norm_channels=self.norm_channels))
 
         self.decoder_layers = nn.ModuleList([])
         for i in reversed(range(1, len(self.down_channels))):
-            self.decoder_layers.append(UpBlock(self.down_channels[i], self.down_channels[i - 1],
-                                               t_emb_dim=None, up_sample=self.down_sample[i - 1],
-                                               num_heads=self.num_heads,
-                                               num_layers=self.num_up_layers,
-                                               attn=self.attns[i - 1],
-                                               norm_channels=self.norm_channels))
+            self.decoder_layers.append(UpBlock3D(self.down_channels[i], self.down_channels[i - 1],
+                                                 t_emb_dim=None, up_sample=self.down_sample[i - 1],
+                                                 num_heads=self.num_heads,
+                                                 num_layers=self.num_up_layers,
+                                                 attn=self.attns[i - 1],
+                                                 norm_channels=self.norm_channels))
 
         self.decoder_norm_out = nn.GroupNorm(self.norm_channels, self.down_channels[0])
-        self.decoder_conv_out = nn.Conv2d(self.down_channels[0], im_channels, kernel_size=3, padding=1)
+        self.decoder_conv_out = nn.Conv3d(self.down_channels[0], im_channels, kernel_size=(3, 3, 3), padding=(1, 1, 1))
 
     def encode(self, x):
         out = self.encoder_conv_in(x)
@@ -101,4 +102,3 @@ class VAE(nn.Module):
         z, encoder_output = self.encode(x)
         out = self.decode(z)
         return out, encoder_output
-
