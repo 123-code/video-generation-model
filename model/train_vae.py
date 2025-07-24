@@ -8,7 +8,7 @@ from einops import rearrange
 import os
 import cv2
 import numpy as np
-from vae import VAE3D
+from model.vae import VAE3D
 import torch.cuda.amp as amp
 
 # Custom Video Dataset for HMDB51
@@ -56,16 +56,16 @@ class VideoDataset(Dataset):
 
 # Training Configuration (unchanged from previous script)
 model_config = {
-    'down_channels': [64, 128, 256, 512],
-    'mid_channels': [512, 512],
-    'down_sample': [True, True, True],
-    'attn_down': [False, True, True],
-    'num_down_layers': 2,
-    'num_mid_layers': 2,
-    'num_up_layers': 2,
-    'z_channels': 4,
-    'norm_channels': 32,
-    'num_heads': 8
+    'down_channels': [32, 64, 128],
+    'mid_channels': [128, 128],
+    'down_sample': [True, False],
+    'num_down_layers': 1,
+    'num_mid_layers': 1,
+    'num_up_layers': 1,
+    'attn_down': [False, False],
+    'z_channels': 8,
+    'norm_channels': 4,
+    'num_heads': 1
 }
 
 # Hyperparameters (unchanged)
@@ -83,18 +83,6 @@ lpips_loss = lpips.LPIPS(net='vgg').to(device)
 mse_loss = nn.MSELoss()
 optimizer = optim.Adam(vae.parameters(), lr=learning_rate)
 scaler = amp.GradScaler()
-
-# Data Loading
-transform = transforms.Compose([
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-])
-dataset = VideoDataset(
-    data_dir='../data/hmdb51_org',  
-    num_frames=16,
-    frame_size=(128, 128),
-    transform=transform
-)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
 
 def train():
     # Training Loop (unchanged)
@@ -141,4 +129,14 @@ def train():
     print("Training completed and model saved.")
 
 if __name__ == '__main__':
+    transform = transforms.Compose([
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+    dataset = VideoDataset(
+        data_dir='../data/hmdb51_org',  
+        num_frames=16,
+        frame_size=(128, 128),
+        transform=transform
+    )
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
     train()
