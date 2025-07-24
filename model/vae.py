@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from Bocks import DownBlock3D, MidBlock3D, UpBlock3D
+from model.Blocks import DownBlock3D, MidBlock3D, UpBlock3D
 from lpips import LPIPS
 
 class VAE3D(nn.Module):
