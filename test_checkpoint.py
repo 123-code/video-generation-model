@@ -317,7 +317,7 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
     model.eval()
 
 
-    dataset = VideoDataset(data_dir, num_frames=16, frame_size=(64, 64))
+    dataset = VideoDataset(data_dir, num_frames=8, frame_size=(96, 96))
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
 
@@ -345,14 +345,14 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
       
             orig_path = os.path.join(output_dir, f'original_video_{i}.mp4')
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out_orig = cv2.VideoWriter(orig_path, fourcc, 10.0, (64, 64))
+            out_orig = cv2.VideoWriter(orig_path, fourcc, 10.0, (96, 96))
             for frame in video_frames:
                 out_orig.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             out_orig.release()
 
          
             recon_path = os.path.join(output_dir, f'recon_video_{i}.mp4')
-            out_recon = cv2.VideoWriter(recon_path, fourcc, 10.0, (64, 64))
+            out_recon = cv2.VideoWriter(recon_path, fourcc, 10.0, (96, 96))
             for frame in recon_frames:
                 out_recon.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             out_recon.release()
@@ -381,4 +381,4 @@ if __name__ == "__main__":
     checkpoint_path = "video-generation-model/vae_checkpoint_epoch_24.pth"  
     data_dir = "."  
     output_dir = "reconstructed_videos"
-    visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=5)
+    visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=15)
