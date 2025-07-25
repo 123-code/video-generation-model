@@ -5,7 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import cv2
 
-# --- Dataset ---
+
 class VideoDataset(Dataset):
     def __init__(self, data_dir, num_frames=16, frame_size=(64, 64)):
         self.samples = []
@@ -38,7 +38,7 @@ class VideoDataset(Dataset):
         video = torch.tensor(video).float().permute(3, 0, 1, 2) / 255.0
         return video
 
-# --- VAE3D Model ---
+
 class VAE3D(nn.Module):
     def __init__(self, im_channels, model_config):
         super().__init__()
@@ -138,7 +138,7 @@ class VAE3D(nn.Module):
         out = self.decode(z)
         return out, encoder_output
 
-# --- DownBlock3D, MidBlock3D, UpBlock3D ---
+
 def get_time_embedding(time_steps, temb_dim):
     assert temb_dim % 2 == 0, "time embedding dimension must be divisible by 2"
     factor = 10000 ** ((torch.arange(start=0, end=temb_dim // 2, dtype=torch.float32, device=time_steps.device) / (temb_dim // 2)))
@@ -291,11 +291,11 @@ class UpBlock3D(nn.Module):
                 out = out + out_attn
         return out
 
-# --- Main Latent Extraction Script ---
+
 def extract_latents(checkpoint_path, data_dir, output_dir, batch_size=1):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Load model configuration
+
     model_config = {
         'down_channels': [32, 64, 128],
         'mid_channels': [128, 128],
@@ -309,29 +309,29 @@ def extract_latents(checkpoint_path, data_dir, output_dir, batch_size=1):
         'num_heads': 1
     }
 
-    # Initialize model
+
     model = VAE3D(im_channels=3, model_config=model_config).to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
     model.eval()
 
-    # Load dataset
+
     dataset = VideoDataset(data_dir, num_frames=16, frame_size=(64, 64))
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    # Create output directory
+
     os.makedirs(output_dir, exist_ok=True)
 
-    # Extract and save latents
+
     with torch.no_grad():
         for i, video in enumerate(dataloader):
             video = video.to(device)
-            z, _ = model.encode(video)  # z is the latent representation
+            z, _ = model.encode(video)  
             latent_path = os.path.join(output_dir, f'latent_{i}.pt')
             torch.save(z.cpu(), latent_path)
             print(f"Saved latent for video {i} to {latent_path}")
 
 if __name__ == "__main__":
-    checkpoint_path = "/Users/joseignacionaranjo/vae_checkpoint_epoch_24.pth"  # Update to your trained checkpoint
-    data_dir = "/Users/joseignacionaranjo/video-generation-model/hmdb51_org"  # Update to your dataset path
+    checkpoint_path = "video-generation-model/vae_checkpoint_epoch_24.pth"  
+    data_dir = "."  
     output_dir = "latents"
     extract_latents(checkpoint_path, data_dir, output_dir)
