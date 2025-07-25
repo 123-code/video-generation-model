@@ -8,7 +8,7 @@ from einops import rearrange
 import os
 import cv2
 import numpy as np
-from model.vae import VAE3D
+from vae import VAE3D
 import torch.cuda.amp as amp
 
 # Custom Video Dataset for HMDB51
@@ -16,10 +16,12 @@ class VideoDataset(Dataset):
     def __init__(self, data_dir, num_frames=16, frame_size=(128, 128), transform=None):
         self.data_dir = data_dir
         self.video_files = []
-        for action_folder in os.listdir(data_dir):
-            action_path = os.path.join(data_dir, action_folder)
-            if os.path.isdir(action_path):
-                self.video_files.extend([os.path.join(action_path, f) for f in os.listdir(action_path) if f.endswith('.avi')])
+        for entry in os.listdir(data_dir):
+            entry_path = os.path.join(data_dir, entry)
+            if os.path.isdir(entry_path):
+                self.video_files.extend([os.path.join(entry_path, f) for f in os.listdir(entry_path) if f.endswith('.avi')])
+            elif entry.endswith('.avi'):
+                self.video_files.append(entry_path)
         self.num_frames = num_frames
         self.frame_size = frame_size
         self.transform = transform
@@ -34,7 +36,7 @@ class VideoDataset(Dataset):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if frame_count < self.num_frames:
             indices = np.arange(frame_count)
-            indices = np.repeat(indices, self.num_frames // frame_count + 1)[:self.num_frames]
+            indices = np.linspace(0, frame_count - 1, frame_count, dtype=int)
         else:
             indices = np.linspace(0, frame_count - 1, self.num_frames, dtype=int)
 
@@ -51,19 +53,23 @@ class VideoDataset(Dataset):
                 frames.append(frame)
         cap.release()
 
+        # Pad with last frame if not enough frames
+        while len(frames) < self.num_frames:
+            frames.append(frames[-1].clone())
+
         video = torch.stack(frames, dim=1)  # Shape: [C, T, H, W]
         return video
 
 # Training Configuration (unchanged from previous script)
 model_config = {
-    'down_channels': [32, 64, 128],
-    'mid_channels': [128, 128],
-    'down_sample': [True, False],
+    'down_channels': [32, 64, 128, 256],
+    'mid_channels': [256, 256],
+    'down_sample': [True, True, False],
     'num_down_layers': 1,
     'num_mid_layers': 1,
     'num_up_layers': 1,
-    'attn_down': [False, False],
-    'z_channels': 8,
+    'attn_down': [False, False, False],
+    'z_channels': 32,
     'norm_channels': 4,
     'num_heads': 1
 }
@@ -99,7 +105,11 @@ def train():
                 
                 # Compute Losses
                 recon_loss = mse_loss(recon_videos, videos)
-                lpips_val = lpips_loss(recon_videos, videos).mean()
+                # Reshape for LPIPS: [B, C, T, H, W] -> [B*T, C, H, W]
+                B, C, T, H, W = recon_videos.shape
+                recon_videos_lpips = recon_videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
+                videos_lpips = videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
+                lpips_val = lpips_loss(recon_videos_lpips, videos_lpips).mean()
                 kl_loss = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
                 loss = recon_loss + lpips_weight * lpips_val + kl_weight * kl_loss
 
@@ -133,7 +143,7 @@ if __name__ == '__main__':
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
     dataset = VideoDataset(
-        data_dir='../data/hmdb51_org',  
+        data_dir='eat',  
         num_frames=16,
         frame_size=(128, 128),
         transform=transform
