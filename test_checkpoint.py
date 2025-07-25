@@ -7,7 +7,7 @@ import numpy as np
 import lpips
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
-# --- Dataset ---
+
 class VideoDataset(Dataset):
     def __init__(self, data_dir, num_frames=16, frame_size=(64, 64)):
         self.samples = []
@@ -37,10 +37,10 @@ class VideoDataset(Dataset):
         elif len(frames) > self.num_frames:
             frames = frames[:self.num_frames]
         video = np.stack(frames, axis=0)
-        video = torch.tensor(video).float().permute(3, 0, 1, 2) / 255.0
+        video = torch.tensor(video, dtype=torch.float32).permute(3, 0, 1, 2) / 255.0
         return video
 
-# --- VAE3D Model ---
+
 class VAE3D(nn.Module):
     def __init__(self, im_channels, model_config):
         super().__init__()
@@ -140,7 +140,7 @@ class VAE3D(nn.Module):
         out = self.decode(z)
         return out, encoder_output
 
-# --- DownBlock3D, MidBlock3D, UpBlock3D ---
+
 def get_time_embedding(time_steps, temb_dim):
     assert temb_dim % 2 == 0, "time embedding dimension must be divisible by 2"
     factor = 10000 ** ((torch.arange(start=0, end=temb_dim // 2, dtype=torch.float32, device=time_steps.device) / (temb_dim // 2)))
@@ -293,11 +293,11 @@ class UpBlock3D(nn.Module):
                 out = out + out_attn
         return out
 
-# --- Main Visualization Script ---
+
 def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=5):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Load model configuration
+
     model_config = {
         'down_channels': [32, 64, 128],
         'mid_channels': [128, 128],
@@ -311,37 +311,38 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
         'num_heads': 1
     }
 
-    # Initialize model
+   
     model = VAE3D(im_channels=3, model_config=model_config).to(device)
     model.load_state_dict(torch.load(checkpoint_path, map_location=torch.device('cpu')))
     model.eval()
 
-    # Load dataset
+
     dataset = VideoDataset(data_dir, num_frames=16, frame_size=(64, 64))
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-    # Create output directory
+
     os.makedirs(output_dir, exist_ok=True)
 
-    # Visualize a subset of videos
+  
     with torch.no_grad():
         all_originals = []
         all_recons = []
+        lpips_loss = lpips.LPIPS(net='alex').to(device)
         for i, video in enumerate(dataloader):
             if i >= num_videos:
                 break
             video = video.to(device)
             recon, _ = model(video)
 
-            # Store for metrics
+       
             all_originals.append(video.cpu())
             all_recons.append(recon.cpu())
 
-            # Convert to numpy for video writing
+        
             video_frames = (video.cpu().permute(0, 2, 3, 4, 1).squeeze(0).numpy() * 255).astype(np.uint8)
             recon_frames = (recon.cpu().permute(0, 2, 3, 4, 1).squeeze(0).numpy() * 255).astype(np.uint8)
 
-            # Save original video
+      
             orig_path = os.path.join(output_dir, f'original_video_{i}.mp4')
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out_orig = cv2.VideoWriter(orig_path, fourcc, 10.0, (64, 64))
@@ -349,7 +350,7 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
                 out_orig.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             out_orig.release()
 
-            # Save reconstructed video
+         
             recon_path = os.path.join(output_dir, f'recon_video_{i}.mp4')
             out_recon = cv2.VideoWriter(recon_path, fourcc, 10.0, (64, 64))
             for frame in recon_frames:
@@ -358,7 +359,7 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
 
             print(f"Saved original to {orig_path} and reconstruction to {recon_path}")
 
-        # Compute average metrics
+      
         all_originals = torch.cat(all_originals, dim=0).to(device)
         all_recons = torch.cat(all_recons, dim=0).to(device)
         mse_loss = nn.MSELoss()
@@ -369,13 +370,15 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
             orig_frame = all_originals[:, :, t, :, :]
             lpips_vals.append(lpips_loss(recon_frame, orig_frame))
         lpips_val = torch.stack(lpips_vals).mean()
+        psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
         psnr_score = psnr(all_recons, all_originals)
+        ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
         ssim_score = ssim(all_recons, all_originals)
 
         print(f"Average Metrics - MSE: {mse.item():.4f}, LPIPS: {lpips_val.item():.4f}, PSNR: {psnr_score.item():.4f}, SSIM: {ssim_score.item():.4f}")
 
 if __name__ == "__main__":
-    checkpoint_path = "/Users/joseignacionaranjo/vae_checkpoint_epoch_24.pth"  # Update to your desired checkpoint
-    data_dir = "/Users/joseignacionaranjo/video-generation-model/hmdb51_org"  # Ruta absoluta a los videos
+    checkpoint_path = "video-generation-model/vae_checkpoint_epoch_24.pth"  
+    data_dir = "."  
     output_dir = "reconstructed_videos"
     visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=5)
