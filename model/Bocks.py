@@ -306,3 +306,4 @@ class UpBlock3D(nn.Module):
                 out_attn = out_attn.transpose(1, 2).reshape(batch_size, channels, t, h, w)
                 out = out + out_attn
         return out
+
