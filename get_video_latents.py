@@ -331,7 +331,13 @@ def extract_latents(checkpoint_path, data_dir, output_dir, batch_size=1):
             print(f"Saved latent for video {i} to {latent_path}")
 
 if __name__ == "__main__":
-    checkpoint_path = "video-generation-model/vae_checkpoint_epoch_24.pth"  
-    data_dir = "."  
-    output_dir = "latents"
-    extract_latents(checkpoint_path, data_dir, output_dir)
+    import argparse
+    parser = argparse.ArgumentParser(description="Extract video latents with VAE3D")
+    parser.add_argument("--checkpoint", required=True, help="Path to VAE checkpoint .pth")
+    parser.add_argument("--data_dir", required=True, help="Directory with input videos (.avi)")
+    parser.add_argument("--output_dir", required=True, help="Directory to save .pt latents")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for latents extraction")
+    args = parser.parse_args()
+
+    extract_latents(args.checkpoint, args.data_dir, args.output_dir, batch_size=args.batch_size)
+
