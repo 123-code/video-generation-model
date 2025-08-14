@@ -8,7 +8,7 @@ from diffusion import DiffusionProcess
 from latent_dataset import LatentDataset
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+ 
 LATENT_SIZE = 32
 IN_CHANNELS = 32
 NUM_FRAMES = 16
