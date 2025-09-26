@@ -60,27 +60,27 @@ class VideoDataset(Dataset):
         video = torch.stack(frames, dim=1)  # Shape: [C, T, H, W]
         return video
 
-# Training Configuration (unchanged from previous script)
+
 model_config = {
-    'down_channels': [32, 64, 128, 256],
-    'mid_channels': [256, 256],
-    'down_sample': [True, True, False],
-    'num_down_layers': 1,
-    'num_mid_layers': 1,
-    'num_up_layers': 1,
-    'attn_down': [False, False, False],
-    'z_channels': 32,
-    'norm_channels': 4,
-    'num_heads': 1
+    'down_channels': [64, 128, 256, 512],  
+    'mid_channels': [512, 512],
+    'down_sample': [True, True, True],     
+    'num_down_layers': 2,                  
+    'num_mid_layers': 2,
+    'num_up_layers': 2,
+    'attn_down': [False, False, True, True], 
+    'z_channels': 64,                      
+    'norm_channels': 32,                   
+    'num_heads': 8                        
 }
 
 # Hyperparameters (unchanged)
-batch_size = 2
-num_epochs = 50
+batch_size = 8
+num_epochs = 100
 learning_rate = 1e-4
 gradient_accumulation_steps = 4
-kl_weight = 0.01
-lpips_weight = 0.1
+kl_weight = 0.001
+lpips_weight = 0.25
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Initialize Model, Loss, and Optimizer
@@ -90,11 +90,19 @@ mse_loss = nn.MSELoss()
 optimizer = optim.Adam(vae.parameters(), lr=learning_rate)
 scaler = amp.GradScaler()
 
+# incrementar el peso de kl, para que el modelo aprenda a reconstruir primero y luego a regularizar el espacio latente
+def get_kl_weight(epoch,total_epochs,start_epoch=5,max_weight=0.01):
+    if epoch < start_epoch:
+        return 0.0
+    return max_weight * min(1.0,(epoch-start_epoch)/(total_epochs/4))
+
 def train():
     # Training Loop (unchanged)
     vae.train()
     for epoch in range(num_epochs):
         total_loss = 0
+        current_kl_weight = get_kl_weight(epoch,num_epochs,max_weight=kl_weight)
+        print(f"Current KL Weight: {current_kl_weight:.6f}")
         for batch_idx, videos in enumerate(dataloader):
             videos = videos.to(device)  # Shape: [B, C, T, H, W]
             
@@ -104,14 +112,16 @@ def train():
                 mean, logvar = torch.chunk(encoder_output, 2, dim=1)
                 
                 # Compute Losses
-                recon_loss = mse_loss(recon_videos, videos)
+                recon_loss = mse_loss(recon_videos, videos,reduction='mean')
                 # Reshape for LPIPS: [B, C, T, H, W] -> [B*T, C, H, W]
                 B, C, T, H, W = recon_videos.shape
                 recon_videos_lpips = recon_videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
                 videos_lpips = videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
                 lpips_val = lpips_loss(recon_videos_lpips, videos_lpips).mean()
-                kl_loss = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
-                loss = recon_loss + lpips_weight * lpips_val + kl_weight * kl_loss
+
+    
+                kl_loss = -0.5 * torch.mean(1 + logvar - mean.pow(2) - logvar.exp())
+                loss = recon_loss + lpips_weight * lpips_val + current_kl_weightkl_weight * kl_loss
 
             # Backward Pass with Gradient Accumulation
             scaler.scale(loss / gradient_accumulation_steps).backward()
