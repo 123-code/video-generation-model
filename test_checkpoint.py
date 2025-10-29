@@ -378,7 +378,7 @@ def visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=
         print(f"Average Metrics - MSE: {mse.item():.4f}, LPIPS: {lpips_val.item():.4f}, PSNR: {psnr_score.item():.4f}, SSIM: {ssim_score.item():.4f}")
 
 if __name__ == "__main__":
-    checkpoint_path = "video-generation-model/vae_checkpoint_epoch_24.pth"  
+    checkpoint_path = "vae_checkpoint_epoch_24.pth"  
     data_dir = "."  
     output_dir = "reconstructed_videos"
     visualize_reconstructions(checkpoint_path, data_dir, output_dir, num_videos=15)

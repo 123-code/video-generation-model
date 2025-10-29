@@ -115,9 +115,9 @@ def train():
                 recon_loss = mse_loss(recon_videos, videos,reduction='mean')
                 # Reshape for LPIPS: [B, C, T, H, W] -> [B*T, C, H, W]
                 B, C, T, H, W = recon_videos.shape
-                recon_videos_lpips = recon_videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
-                videos_lpips = videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
-                lpips_val = lpips_loss(recon_videos_lpips, videos_lpips).mean()
+                recon_flat = recon_videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
+                videos_flat = videos.permute(0, 2, 1, 3, 4).reshape(B*T, C, H, W)
+                lpips_val = lpips_loss(recon_flat, videos_flat).mean()
 
     
                 kl_loss = -0.5 * torch.mean(1 + logvar - mean.pow(2) - logvar.exp())
