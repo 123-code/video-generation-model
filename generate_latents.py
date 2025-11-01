@@ -123,7 +123,7 @@ def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
 if __name__ == "__main__":
     data_dir = "data/hmdb51"
     output_dir = "latents_test"
-    batch_size = 1  # Process one video at a time
-    max_videos = 3  # Start with just 3 videos
+    batch_size = 1
+    max_videos = 10
 
     generate_latents(data_dir, output_dir, batch_size, max_videos)

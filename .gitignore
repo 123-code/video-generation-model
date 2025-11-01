@@ -2,3 +2,5 @@
 /eat
 .DS_Store
 .rar
+latents/
+latents_test/
