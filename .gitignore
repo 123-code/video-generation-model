@@ -4,3 +4,11 @@
 .rar
 latents/
 latents_test/
+*.pth
+*.pt
+__pycache__/
+*.pyc
+*.log
+generated_videos/
+reconstructed_videos/
+*.mp4
