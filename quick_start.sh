@@ -16,9 +16,10 @@ if [ ! -f "vae_checkpoint_epoch_24.pth" ]; then
     fi
 fi
 
-if [ ! -d "data/hmdb51" ] || [ -z "$(ls -A data/hmdb51)" ]; then
+if [ ! -d "data/hmdb51" ] || [ -z "$(ls -A data/hmdb51 2>/dev/null)" ]; then
     echo "Setting up HMDB51 dataset..."
-    bash setup_dataset.sh
+    echo "This will download from Hugging Face..."
+    python download_hmdb51.py
 else
     echo "✓ HMDB51 dataset found"
 fi

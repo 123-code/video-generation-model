@@ -23,15 +23,29 @@ pip install -r requirements.txt
 ```
 
 ### 3. Download HMDB51 Dataset
+
+**Option A: Automatic (recommended)**
 ```bash
 chmod +x setup_dataset.sh
 bash setup_dataset.sh
 ```
 
+**Option B: Python directly**
+```bash
+python download_hmdb51.py
+```
+
 This will:
-- Download HMDB51 (~2GB)
-- Extract all 51 action categories
-- Organize into `data/hmdb51/` directory
+- Download HMDB51 from Hugging Face (~2GB)
+- Organize into action categories
+- Place in `data/hmdb51/` directory
+
+**Note:** If download fails, you may need to login to Hugging Face:
+```bash
+pip install huggingface-hub
+huggingface-cli login
+# Then enter your token from https://huggingface.co/settings/tokens
+```
 
 ### 4. Generate Latents (Optional - if not using pre-generated)
 ```bash
@@ -171,10 +185,15 @@ video-generation-model/
 
 ### Dataset Download Fails
 ```bash
-# Manual download
-wget http://serre-lab.clps.brown.edu/wp-content/uploads/2013/10/hmdb51_org.rar
-unrar x hmdb51_org.rar data/hmdb51/
-cd data/hmdb51 && for f in *.rar; do unrar x "$f"; done
+# Login to Hugging Face first
+huggingface-cli login
+
+# Then try again
+python download_hmdb51.py
+
+# Or set token as environment variable
+export HF_TOKEN=your_token_here
+python download_hmdb51.py
 ```
 
 ### Missing VAE Checkpoint
