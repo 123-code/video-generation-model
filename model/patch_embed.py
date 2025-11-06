@@ -12,19 +12,19 @@ class PatchEmbed(nn.Module):
         self.patch_dim = self.patch_size ** 3 * self.in_channels
         self.projection = nn.Linear(self.patch_dim, self.embed_dim)
 
-    def get_pos_embed(self, embed_dim, grid_size_h, grid_size_w, num_frames):
+    def get_pos_embed(self, embed_dim, grid_size_h, grid_size_w, num_frames, device):
         spatial_dim = embed_dim // 2
         temporal_dim = embed_dim - spatial_dim
 
-        pos_h = torch.arange(grid_size_h, dtype=torch.float32).unsqueeze(1)
-        pos_w = torch.arange(grid_size_w, dtype=torch.float32).unsqueeze(1)
-        div_term_spatial = torch.exp(torch.arange(0, spatial_dim//2, 2).float() * -(math.log(10000.0) / (spatial_dim//2)))
+        pos_h = torch.arange(grid_size_h, dtype=torch.float32, device=device).unsqueeze(1)
+        pos_w = torch.arange(grid_size_w, dtype=torch.float32, device=device).unsqueeze(1)
+        div_term_spatial = torch.exp(torch.arange(0, spatial_dim//2, 2, device=device).float() * -(math.log(10000.0) / (spatial_dim//2)))
         pe_h = torch.sin(pos_h * div_term_spatial)
         pe_w = torch.cos(pos_w * div_term_spatial)
         spatial_pe = torch.cat([pe_h, pe_w], dim=1).flatten()
 
-        pos_t = torch.arange(num_frames, dtype=torch.float32).unsqueeze(1)
-        div_term_temporal = torch.exp(torch.arange(0, temporal_dim//2, 2).float() * -(math.log(10000.0) / (temporal_dim//2)))
+        pos_t = torch.arange(num_frames, dtype=torch.float32, device=device).unsqueeze(1)
+        div_term_temporal = torch.exp(torch.arange(0, temporal_dim//2, 2, device=device).float() * -(math.log(10000.0) / (temporal_dim//2)))
         pe_t_sin = torch.sin(pos_t * div_term_temporal)
         pe_t_cos = torch.cos(pos_t * div_term_temporal)
         temporal_pe = torch.cat([pe_t_sin, pe_t_cos], dim=1).flatten()
@@ -59,9 +59,10 @@ class PatchEmbed(nn.Module):
         patches = rearrange(latent, 'b c (t pt) (h p1) (w p2) -> b (t h w) (pt p1 p2 c)', 
                           pt=self.patch_size, p1=self.patch_size, p2=self.patch_size, 
                           h=num_patches_h, w=num_patches_w, t=num_patches_t)
+        patches = patches.float()
         emb = self.projection(patches)
 
-        pos_emb = self.get_pos_embed(self.embed_dim, num_patches_h, num_patches_w, num_patches_t)
+        pos_emb = self.get_pos_embed(self.embed_dim, num_patches_h, num_patches_w, num_patches_t, latent.device)
         emb = emb + pos_emb.unsqueeze(0)
         return emb
 
