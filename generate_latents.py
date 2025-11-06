@@ -67,16 +67,16 @@ def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
 
     # VAE model configuration
     model_config = {
-        'down_channels': [32, 64, 128],
+        'down_channels': [32, 64, 128, 128],
         'mid_channels': [128, 128],
-        'down_sample': [True, False],
-        'num_down_layers': 1,
-        'num_mid_layers': 1,
-        'num_up_layers': 1,
-        'attn_down': [False, False],
+        'down_sample': [True, True, True],
+        'num_down_layers': 2,
+        'num_mid_layers': 2,
+        'num_up_layers': 2,
+        'attn_down': [False, False, False],
         'z_channels': 8,
-        'norm_channels': 4,
-        'num_heads': 1
+        'norm_channels': 32,
+        'num_heads': 4
     }
 
     # Initialize VAE model
@@ -121,9 +121,12 @@ def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
     print(f"✓ Latent shape: [8, 16, 32, 32] (channels, time, height, width)")
 
 if __name__ == "__main__":
-    data_dir = "data/hmdb51"
-    output_dir = "latents_test"
-    batch_size = 1
-    max_videos = 10
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_dir', type=str, default="data/hmdb51")
+    parser.add_argument('--output_dir', type=str, default="latents")
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--max_videos', type=int, default=200)
+    args = parser.parse_args()
 
-    generate_latents(data_dir, output_dir, batch_size, max_videos)
+    generate_latents(args.data_dir, args.output_dir, args.batch_size, args.max_videos)
