@@ -65,18 +65,18 @@ def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # VAE model configuration
+    # VAE model configuration (must match training config)
     model_config = {
-        'down_channels': [32, 64, 128, 128],
-        'mid_channels': [128, 128],
+        'down_channels': [64, 128, 256, 512],
+        'mid_channels': [512, 512],
         'down_sample': [True, True, True],
         'num_down_layers': 2,
         'num_mid_layers': 2,
         'num_up_layers': 2,
-        'attn_down': [False, False, False],
-        'z_channels': 8,
+        'attn_down': [False, False, True],
+        'z_channels': 64,
         'norm_channels': 32,
-        'num_heads': 4
+        'num_heads': 8
     }
 
     # Initialize VAE model
@@ -118,7 +118,7 @@ def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
 
     print(f"✓ Latents saved to {output_dir}")
     print(f"✓ Total videos processed: {len(dataset)}")
-    print(f"✓ Latent shape: [8, 16, 32, 32] (channels, time, height, width)")
+    print(f"✓ Latent shape: [64, 16, 16, 16] (channels, time, height, width)")
 
 if __name__ == "__main__":
     import argparse

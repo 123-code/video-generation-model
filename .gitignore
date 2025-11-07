@@ -1,9 +1,9 @@
-
+/data
 /eat
 .DS_Store
 .rar
 latents/
-latents_test/
+latents_test/ 
 *.pth
 *.pt
 __pycache__/
