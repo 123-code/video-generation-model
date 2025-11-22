@@ -1,14 +1,55 @@
+# Data directories
 /data
 /eat
-.DS_Store
-.rar
 latents/
-latents_test/ 
-*.pth
-*.pt
-__pycache__/
-*.pyc
-*.log
+latents_test/
+latents_demo/
+latents_hmdb51/
+latents_moving_mnist/
+
+# Generated outputs
 generated_videos/
 reconstructed_videos/
+demo_checkpoints/
 *.mp4
+*.avi
+
+# Model checkpoints
+*.pth
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.venv.bak/
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Installers
+*.sh
+Miniforge*.sh
