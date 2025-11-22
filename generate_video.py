@@ -44,10 +44,12 @@ def generate_video_clip(dit_model, vae3d, diffusion, num_samples=1, steps=50, de
                 sigma_t = torch.sqrt(beta_t * (1.0 - alpha_bar_prev) / (1.0 - alpha_bar_t))
                 z = z + sigma_t * noise
         
+        # <<< CRITICAL: scale UP before decoding (opposite of training) >>>
         z_scaled = z * LATENT_SCALE_FACTOR
         video = vae3d.decode(z_scaled)
-        video = torch.clamp(video, -1, 1)
-        video = (video + 1) / 2
+        video = torch.clamp(video, -1.0, 1.0)
+        video = (video + 1.0) / 2.0
+        video = torch.clamp(video, 0.0, 1.0)
         
     return video
 

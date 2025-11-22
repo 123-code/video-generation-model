@@ -35,12 +35,13 @@ class LatentDataset(Dataset):
         latent_path = self.latent_files[file_idx]
         latent = torch.load(latent_path, map_location='cpu')
 
-        if latent.ndim == 5:
+        if latent.ndim == 5:                    # batched file
             latent = latent[inner_idx]
-        elif latent.ndim != 4:
-            raise ValueError(f"Expected latent dims 4 or 5, got shape {tuple(latent.shape)} in {latent_path}")
+        # <<< FIX 17-frame latents (very common bug) >>>
+        if latent.shape[1] == 17:               # T dimension = 17 → truncate
+            latent = latent[:, :16, :, :]
 
+        if latent.ndim != 4 or latent.shape[1] != 16:
+            raise ValueError(f"Bad latent shape {latent.shape} in {latent_path}")
 
-        if latent.ndim != 4:
-            raise ValueError(f"Expected latent with 4 dims [C,F,H,W], got shape {tuple(latent.shape)} in {latent_path}")
         return latent.float()
