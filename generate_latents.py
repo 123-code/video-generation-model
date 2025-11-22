@@ -1,23 +1,22 @@
+from diffusers import AutoencoderKL
 import torch
-import torch.nn as nn
-from model.vae import VAE3D
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from moving_mnist_dataset import MovingMNISTDataset
 import os
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 class VideoDataset(Dataset):
-    def __init__(self, data_dir, num_frames=16, frame_size=(128, 128), transform=None, max_videos=None):
+    def __init__(self, data_dir, num_frames=16, frame_size=(64, 64), max_videos=None):
         self.data_dir = data_dir
         self.video_files = []
-        for entry in os.listdir(data_dir):
-            entry_path = os.path.join(data_dir, entry)
-            if os.path.isdir(entry_path):
-                self.video_files.extend([os.path.join(entry_path, f) for f in os.listdir(entry_path) if f.endswith('.avi')])
-            elif entry.endswith('.avi'):
-                self.video_files.append(entry_path)
+
+        # Find all video files in the directory
+        for root, _, files in os.walk(data_dir):
+            for fname in files:
+                if fname.endswith(('.avi', '.mp4', '.mov')):
+                    self.video_files.append(os.path.join(root, fname))
 
         # Limit number of videos if specified
         if max_videos is not None:
@@ -25,7 +24,6 @@ class VideoDataset(Dataset):
 
         self.num_frames = num_frames
         self.frame_size = frame_size
-        self.transform = transform
 
     def __len__(self):
         return len(self.video_files)
@@ -33,10 +31,11 @@ class VideoDataset(Dataset):
     def __getitem__(self, idx):
         video_path = self.video_files[idx]
         cap = cv2.VideoCapture(video_path)
+
         frames = []
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
         if frame_count < self.num_frames:
-            indices = np.arange(frame_count)
             indices = np.linspace(0, frame_count - 1, frame_count, dtype=int)
         else:
             indices = np.linspace(0, frame_count - 1, self.num_frames, dtype=int)
@@ -47,86 +46,148 @@ class VideoDataset(Dataset):
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame = cv2.resize(frame, self.frame_size)
-                frame = frame / 255.0
+                # Convert to [-1, 1] range for SD VAE
+                frame = frame.astype(np.float32) / 127.5 - 1.0
                 frame = torch.tensor(frame, dtype=torch.float32).permute(2, 0, 1)
-                if self.transform:
-                    frame = self.transform(frame)
                 frames.append(frame)
+
         cap.release()
 
         # Pad with last frame if not enough frames
         while len(frames) < self.num_frames:
             frames.append(frames[-1].clone())
 
-        video = torch.stack(frames, dim=1)  # Shape: [C, T, H, W]
-        return video, video_path
+        # Stack frames: [C, T, H, W]
+        video = torch.stack(frames, dim=1)
 
-def generate_latents(data_dir, output_dir, batch_size=4, max_videos=10):
+        # Extract video name from path
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        return video, video_name
+
+def encode_video(video_tensor, vae):
+    """
+    Encode video tensor using SD VAE
+    Input: [B, 3, T, H, W]  (Batch, RGB, Time, Height, Width)
+    Input should be normalized to [-1, 1]
+    """
+    B, C, T, H, W = video_tensor.shape
+
+    # 1. Squash Batch and Time dimensions together
+    # We pretend we have (B * T) individual images
+    x = video_tensor.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+
+    with torch.no_grad():
+        # 2. Encode using SD VAE
+        posterior = vae.encode(x).latent_dist
+        latents = posterior.sample()
+
+        # 3. Apply the Magic Scaling Factor
+        # SD VAEs are trained with this factor. Without it, your training will fail.
+        latents = latents * 0.18215
+
+    # 4. Reshape back to Video format
+    # SD VAE compresses spatial dims by 8 (e.g., 64x64 -> 8x8)
+    # Output channels are 4
+    _, C_out, H_out, W_out = latents.shape
+    latents = latents.reshape(B, T, C_out, H_out, W_out).permute(0, 2, 1, 3, 4)
+
+    return latents  # Output: [B, 4, T, H/8, W/8]
+
+def generate_latents_from_videos(data_dir, output_dir, batch_size=4, max_videos=10, num_frames=16):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # VAE model configuration (must match checkpoint)
-    model_config = {
-        'down_channels': [32, 64, 128],
-        'mid_channels': [128, 128],
-        'down_sample': [True, False],
-        'num_down_layers': 1,
-        'num_mid_layers': 1,
-        'num_up_layers': 1,
-        'attn_down': [False, False],
-        'z_channels': 8,
-        'norm_channels': 4,
-        'num_heads': 1
-    }
-
-    # Initialize VAE model
-    vae = VAE3D(im_channels=3, model_config=model_config).to(device)
-    vae.load_state_dict(torch.load('vae_checkpoint_epoch_24.pth', map_location=device))
+    # Load standard SD VAE
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device)
     vae.eval()
 
-    # Create dataset and dataloader
-    transform = transforms.Compose([
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-    ])
-
+    # Create video dataset
     dataset = VideoDataset(
         data_dir=data_dir,
-        num_frames=16,
-        frame_size=(128, 128),
-        transform=transform,
+        num_frames=num_frames,
+        frame_size=(256, 256),
         max_videos=max_videos
     )
 
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Processing {len(dataset)} videos in batches of {batch_size}")
 
     with torch.no_grad():
-        for batch_idx, (videos, video_paths) in enumerate(tqdm(dataloader, desc="Generating latents")):
+        for batch_idx, (videos, video_names) in enumerate(tqdm(dataloader, desc="Generating latents")):
             videos = videos.to(device)
 
-            # Encode to latents
-            latents, _ = vae.encode(videos)
+            # Encode to latents using SD VAE
+            latents = encode_video(videos, vae)
 
             # Save latents
-            for i, video_path in enumerate(video_paths):
-                video_name = os.path.splitext(os.path.basename(video_path))[0]
+            for i, video_name in enumerate(video_names):
                 latent_path = os.path.join(output_dir, f"{video_name}.pt")
                 torch.save(latents[i].cpu(), latent_path)
 
     print(f"✓ Latents saved to {output_dir}")
     print(f"✓ Total videos processed: {len(dataset)}")
-    print(f"✓ Latent shape: [8, 16, 32, 32] (channels, time, height, width)")
+    print(f"✓ Latent shape: [4, {num_frames}, 32, 32] (channels, time, height, width)")
+
+def generate_latents_from_mnist(output_dir, batch_size=4, num_samples=1000, seq_len=20):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
+    # Load standard SD VAE
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device)
+    vae.eval()
+
+    # Create Moving MNIST dataset
+    dataset = MovingMNISTDataset(
+        num_samples=num_samples,
+        seq_len=seq_len,
+        image_size=256,
+        num_digits=2,
+        step_length=0.1
+    )
+
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"Processing {len(dataset)} videos in batches of {batch_size}")
+
+    with torch.no_grad():
+        for batch_idx, (videos, video_names) in enumerate(tqdm(dataloader, desc="Generating latents")):
+            videos = videos.to(device)
+
+            # Encode to latents using SD VAE
+            latents = encode_video(videos, vae)
+
+            # Save latents
+            for i, video_name in enumerate(video_names):
+                latent_path = os.path.join(output_dir, f"{video_name}.pt")
+                torch.save(latents[i].cpu(), latent_path)
+
+    print(f"✓ Latents saved to {output_dir}")
+    print(f"✓ Total videos processed: {len(dataset)}")
+    print(f"✓ Latent shape: [4, {seq_len}, 32, 32] (channels, time, height, width)")
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, default="data/hmdb51")
+    parser.add_argument('--mode', type=str, choices=['mnist', 'videos'], default='mnist',
+                       help='Generate latents from Moving MNIST or video files')
+    parser.add_argument('--data_dir', type=str, help='Directory containing video files (for videos mode)')
     parser.add_argument('--output_dir', type=str, default="latents")
-    parser.add_argument('--batch_size', type=int, default=2)
-    parser.add_argument('--max_videos', type=int, default=200)
+    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--num_samples', type=int, default=1000, help='Number of MNIST samples')
+    parser.add_argument('--seq_len', type=int, default=20, help='Sequence length for MNIST')
+    parser.add_argument('--max_videos', type=int, default=10, help='Max videos to process')
+    parser.add_argument('--num_frames', type=int, default=16, help='Number of frames per video')
     args = parser.parse_args()
 
-    generate_latents(args.data_dir, args.output_dir, args.batch_size, args.max_videos)
+    if args.mode == 'videos':
+        if not args.data_dir:
+            print("Error: --data_dir is required when using --mode videos")
+            exit(1)
+        generate_latents_from_videos(args.data_dir, args.output_dir, args.batch_size, args.max_videos, args.num_frames)
+    else:
+        generate_latents_from_mnist(args.output_dir, args.batch_size, args.num_samples, args.seq_len)
