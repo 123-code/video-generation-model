@@ -5,21 +5,22 @@ import torch
 import imageio
 import numpy as np
 from tqdm import tqdm
-
+from diffusers import AutoencoderKL
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 FILE_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(FILE_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from model.video_dit import VideoDiT
-from model.vae import VAE3D
 from diffusion import DiffusionProcess
 
 LATENT_SCALE_FACTOR = 2.874741
 
-def generate_video_clip(dit_model, vae3d, diffusion, num_samples=1, steps=50, device='cuda'):
+vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(device)
+
+def generate_video_clip(dit_model, diffusion, num_samples=1, steps=50, device='cuda'):
     dit_model.eval()
-    vae3d.eval()
     with torch.no_grad():
         B, C, T, H, W = num_samples, 8, 16, 64, 64
         z = torch.randn(B, C, T, H, W).to(device)
@@ -44,9 +45,18 @@ def generate_video_clip(dit_model, vae3d, diffusion, num_samples=1, steps=50, de
                 sigma_t = torch.sqrt(beta_t * (1.0 - alpha_bar_prev) / (1.0 - alpha_bar_t))
                 z = z + sigma_t * noise
         
-        # <<< CRITICAL: scale UP before decoding (opposite of training) >>>
-        z_scaled = z * LATENT_SCALE_FACTOR
-        video = vae3d.decode(z_scaled)
+        # 2. Unscale
+        z_unscaled = z / 0.18215
+
+        # 3. Reshape for VAE [B, C, T, H, W] -> [B*T, C, H, W]
+        B, C, T, H, W = z_unscaled.shape
+        z_flat = z_unscaled.permute(0, 2, 1, 3, 4).reshape(B * T, C, H, W)
+
+        # 4. Decode
+        video_flat = vae.decode(z_flat).sample
+
+        # 5. Reshape back to video [B*T, 3, H_p, W_p] -> [B, 3, T, H_p, W_p]
+        video = video_flat.reshape(B, T, 3, H*8, W*8).permute(0, 2, 1, 3, 4)
         video = torch.clamp(video, -1.0, 1.0)
         video = (video + 1.0) / 2.0
         video = torch.clamp(video, 0.0, 1.0)
@@ -72,7 +82,6 @@ def save_video(video_tensor, output_path, fps=8):
 def main():
     parser = argparse.ArgumentParser(description="Generate videos using trained VideoDiT")
     parser.add_argument('--dit_checkpoint', type=str, required=True)
-    parser.add_argument('--vae_checkpoint', type=str, default='vae_checkpoint_epoch_24.pth')
     parser.add_argument('--num_samples', type=int, default=2)
     parser.add_argument('--steps', type=int, default=50)
     parser.add_argument('--output_dir', type=str, default='generated_videos')
@@ -103,27 +112,11 @@ def main():
     print(f"Loading DiT checkpoint from {args.dit_checkpoint}")
     dit.load_state_dict(torch.load(args.dit_checkpoint, map_location=device))
     
-    vae_config = {
-        'z_channels': 8,
-        'down_channels': [32, 64, 128, 128],
-        'mid_channels': [128, 128],
-        'down_sample': [True, True, True],
-        'attn_down': [False, False, False],
-        'norm_channels': 32,
-        'num_heads': 4,
-        'num_down_layers': 2,
-        'num_mid_layers': 2,
-        'num_up_layers': 2,
-    }
-    
-    vae3d = VAE3D(im_channels=3, model_config=vae_config).to(device)
-    print(f"Loading VAE checkpoint from {args.vae_checkpoint}")
-    vae3d.load_state_dict(torch.load(args.vae_checkpoint, map_location=device))
     
     diffusion = DiffusionProcess(timesteps=args.timesteps)
     
     print(f"Generating {args.num_samples} video(s) with {args.steps} steps...")
-    video = generate_video_clip(dit, vae3d, diffusion, num_samples=args.num_samples, steps=args.steps, device=device)
+    video = generate_video_clip(dit, diffusion, num_samples=args.num_samples, steps=args.steps, device=device)
     
     os.makedirs(args.output_dir, exist_ok=True)
     output_path = os.path.join(args.output_dir, 'generated.mp4')
