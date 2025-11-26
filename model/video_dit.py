@@ -24,7 +24,7 @@ class VideoDiT(nn.Module):
             for _ in range(depth)
         ])
         self.norm = nn.LayerNorm(dim)
-        self.out_proj = nn.Linear(dim,in_channels*(patch_size**3))
+        self.out_proj = nn.Linear(dim, in_channels * (patch_size ** 3))
         self.T,self.H,self.W,self.patch_size=T,H,W,patch_size
         
 
@@ -46,3 +46,4 @@ class VideoDiT(nn.Module):
         w_patches = self.W // self.patch_size
         noise_pred = rearrange(x,'b (t h w) (c pt ph pw) -> b c (t pt) (h ph) (w pw)',
         t=t_patches,h=h_patches,w=w_patches,c=self.in_channels,pt=self.patch_size,ph=self.patch_size,pw=self.patch_size)
+        return noise_pred
