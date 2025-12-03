@@ -8,12 +8,32 @@ from torch.cuda.amp import autocast, GradScaler
 from tqdm import tqdm
 import numpy as np
 import imageio
+from datetime import datetime
+from huggingface_hub import HfApi, hf_hub_download, list_repo_files, upload_file
 
 from model.video_dit_v2 import VideoDiTV2
 from diffusion_v2 import GaussianDiffusion, EMA
 from latent_dataset import LatentDataset
 
+# HuggingFace configuration
+REPO_ID = "Jnaranjo/video-dit-spot"
+api = HfApi()
+SAVE_EVERY_STEPS = 500  # change if you want more/less frequent saves
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_latest_checkpoint():
+    try:
+        files = list_repo_files(REPO_ID)
+        ckpts = sorted([f for f in files if f.endswith(".pt")])
+        if not ckpts:
+            return None
+        latest = ckpts[-1]
+        local_path = hf_hub_download(repo_id=REPO_ID, filename=latest)
+        print(f"Resuming from latest HF checkpoint: {latest}")
+        return torch.load(local_path, map_location=device)
+    except:
+        return None
 
 def generate_sample(model, diffusion, epoch, output_dir, num_samples=1, ddim_steps=50):
     from diffusers import AutoencoderKL
@@ -123,10 +143,22 @@ def main():
     
     ema = EMA(model, decay=0.9999, warmup_steps=2000)
     scaler = GradScaler()
-    
+
     start_epoch = 0
-    if args.resume:
-        print(f"Resuming from {args.resume}")
+    global_step = 0
+
+    # Try to resume from HF checkpoint first
+    checkpoint = get_latest_checkpoint()
+    if checkpoint:
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        ema.load_state_dict(checkpoint["ema"])
+        start_epoch = checkpoint["epoch"] + 1
+        global_step = checkpoint.get("step", 0)
+        print(f"Resumed from HF at epoch {start_epoch}, step {global_step}")
+    elif args.resume:
+        print(f"Resuming from local checkpoint: {args.resume}")
         ckpt = torch.load(args.resume, map_location=device)
         model.load_state_dict(ckpt['model'])
         optimizer.load_state_dict(ckpt['optimizer'])
@@ -141,27 +173,52 @@ def main():
         epoch_loss = 0.0
         
         pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{args.epochs}")
-        
+
         for step, latents in enumerate(pbar):
+            global_step += 1
             latents = latents.to(device)
-            
+
             t = torch.randint(0, args.timesteps, (latents.shape[0],), device=device)
-            
+
             with autocast():
                 loss = diffusion.training_losses(model, latents, t)
-            
+
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             scaler.step(optimizer)
             scaler.update()
-            
+
             scheduler.step()
             ema.update()
-            
+
             epoch_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}", lr=f"{scheduler.get_last_lr()[0]:.2e}")
+
+            # Save + push to HF every N steps
+            if global_step % SAVE_EVERY_STEPS == 0:
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                ckpt_name = f"checkpoint-step{global_step}-epoch{epoch}-{timestamp}.pt"
+                state = {
+                    "epoch": epoch,
+                    "step": global_step,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "ema": ema.state_dict(),
+                    "loss": loss.item(),
+                }
+                local_path = f"/tmp/{ckpt_name}"
+                torch.save(state, local_path)
+                upload_file(
+                    path_or_fileobj=local_path,
+                    path_in_repo=ckpt_name,
+                    repo_id=REPO_ID,
+                    commit_message=f"step {global_step} loss {loss.item():.4f}",
+                )
+                os.remove(local_path)  # free disk space
+                print(f"Pushed {ckpt_name} → hf.co/{REPO_ID}")
         
         avg_loss = epoch_loss / len(dataloader)
         print(f"Epoch {epoch+1} | Loss: {avg_loss:.6f}")
