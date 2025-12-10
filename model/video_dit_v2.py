@@ -7,6 +7,10 @@ import math
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
+#escalar el tensor , para evitar que activaciones se vuelvan demasiado largas o pequeñas
+# se usa un peso aprendido con backpropagation para luego escalarlo de regreso
+# calculamos rmspor fila, luego dividimos cada elemento por rms. 
+#luego aplicamos un learnable weight * (x/rms)
 class RMSNorm(nn.Module):
     def __init__(self, dim, eps=1e-6):
         super().__init__()
@@ -269,4 +273,5 @@ class VideoDiTV2(nn.Module):
         combined = self.forward(x, t, y)
         cond, uncond = combined[:half], combined[half:]
         return uncond + cfg_scale * (cond - uncond)
+
 
