@@ -274,3 +274,4 @@ class VideoDiTV2(nn.Module):
         cond, uncond = combined[:half], combined[half:]
         return uncond + cfg_scale * (cond - uncond)
 
+
