@@ -11,7 +11,6 @@ latents_moving_mnist/
 generated_videos/
 reconstructed_videos/
 demo_checkpoints/
-*.mp4
 *.avi
 
 # Model checkpoints
