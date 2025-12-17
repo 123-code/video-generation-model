@@ -1,0 +1,16 @@
+torch==2.4.1
+torchvision==0.19.1
+einops>=0.7.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.9
+tqdm>=4.65.0
+lpips>=0.1.4
+pillow>=10.0.0
+datasets>=2.14.0
+huggingface_hub[hf_transfer]>=0.17.0
+diffusers>=0.25.0
+accelerate
+transformers
+
