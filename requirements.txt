@@ -1,0 +1,20 @@
+# PyTorch nightly with CUDA 12.8 support for B200 Blackwell GPU (sm_100)
+# Install with: pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+torch>=2.11.0.dev
+torchvision>=0.25.0.dev
+torchaudio>=2.10.0.dev
+
+# Other dependencies
+einops>=0.8.1
+tqdm>=4.66.0
+numpy>=1.24.0
+imageio>=2.34.0
+huggingface-hub>=0.23.0
+diffusers>=0.28.0
+accelerate>=0.29.0
+transformers>=4.40.0
+
+# Optional packages for video processing
+opencv-python>=4.8.0
+pillow>=10.0.0
+matplotlib>=3.7.0
