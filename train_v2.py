@@ -11,8 +11,8 @@ import imageio
 from datetime import datetime
 from huggingface_hub import HfApi, hf_hub_download, list_repo_files, upload_file
 
-from model.video_dit_v2 import VideoDiTV2
-from diffusion_v2 import GaussianDiffusion, EMA
+from video_dit import VideoDiTV2
+from Diffusion import GaussianDiffusion, EMA
 from latent_dataset import LatentDataset
 
 # HuggingFace configuration
