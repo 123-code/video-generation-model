@@ -5,8 +5,8 @@ import numpy as np
 import imageio
 from tqdm import tqdm
 
-from video_dit import VideoDiTV2
-from Diffusion import GaussianDiffusion
+from model import VideoDiTV2
+from diffusion import GaussianDiffusion
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
