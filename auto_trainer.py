@@ -25,8 +25,8 @@ def download_data():
     """
     Downloads latent files from HF repo.
     """
-    print("
-📥 Downloading latent data..."    print(f"Repository: {REPO_ID}")
+    print("\n📥 Downloading latent data...")
+    print(f"Repository: {REPO_ID}")
     
     try:
         login(token=HF_TOKEN)
@@ -51,8 +51,8 @@ def run_training():
     """
     cmd = [sys.executable, "train_v2.py"] + TRAINING_ARGS
     
-    print("
-🚀 Starting Video Generation Training"    print(f"Command: {' '.join(cmd)}")
+    print("\n🚀 Starting Video Generation Training")
+    print(f"Command: {' '.join(cmd)}")
     print("=" * 60)
     
     try:
