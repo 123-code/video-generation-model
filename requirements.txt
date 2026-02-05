@@ -18,3 +18,4 @@ transformers>=4.40.0
 opencv-python>=4.8.0
 pillow>=10.0.0
 matplotlib>=3.7.0
+requests>=2.31.0  # For Pexels API

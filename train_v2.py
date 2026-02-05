@@ -16,24 +16,49 @@ from diffusion import GaussianDiffusion, EMA
 from dataset import LatentDataset
 
 # HuggingFace configuration
-REPO_ID = "Jnaranjo/video-dit-spot"
+REPO_ID = "Jnaranjo/video-dit-spot"  # Repo to save checkpoints
+CHECKPOINT_REPO_ID = "Jnaranjo/video-generation-epoch90-checkpoint"  # Repo to resume from
 SAVE_EVERY_STEPS = 500
+HF_CHECKPOINT_EVERY_EPOCHS = 5  # Save full checkpoint to HF every N epochs
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def get_latest_checkpoint():
-    try:
-        files = list_repo_files(REPO_ID)
-        ckpts = sorted([f for f in files if f.endswith(".pt") and "checkpoint-" in f])
-        if not ckpts:
-            return None
-        latest = ckpts[-1]
-        local_path = hf_hub_download(repo_id=REPO_ID, filename=latest)
-        print(f"Resuming from latest HF checkpoint: {latest}")
-        return torch.load(local_path, map_location=device)
-    except Exception as e:
-        print(f"No valid checkpoint found on HF ({e}). Starting fresh.")
-        return None
+# H100 optimizations
+if torch.cuda.is_available():
+    # Enable TF32 for faster matmuls on Ampere+ GPUs (H100, A100)
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # Enable cudnn autotuning for optimal convolution algorithms
+    torch.backends.cudnn.benchmark = True
+
+def get_latest_checkpoint(prefer_checkpoint_repo=True):
+    """
+    Get latest checkpoint, first checking CHECKPOINT_REPO_ID, then REPO_ID.
+    """
+    repos_to_check = [CHECKPOINT_REPO_ID, REPO_ID] if prefer_checkpoint_repo else [REPO_ID]
+
+    for repo in repos_to_check:
+        try:
+            files = list_repo_files(repo)
+            # Look for epoch checkpoints first (more reliable), then step checkpoints
+            epoch_ckpts = sorted([f for f in files if f.endswith(".pt") and "epoch" in f.lower()])
+            step_ckpts = sorted([f for f in files if f.endswith(".pt") and "checkpoint-" in f])
+
+            ckpts = epoch_ckpts if epoch_ckpts else step_ckpts
+            if not ckpts:
+                continue
+
+            latest = ckpts[-1]
+            print(f"Found checkpoint: {latest} in {repo}")
+            local_path = hf_hub_download(repo_id=repo, filename=latest)
+            print(f"Resuming from: {latest}")
+            return torch.load(local_path, map_location=device)
+        except Exception as e:
+            print(f"Could not load from {repo}: {e}")
+            continue
+
+    print("No valid checkpoint found. Starting fresh.")
+    return None
 
 def generate_sample(model, diffusion, epoch, output_dir, num_samples=1, ddim_steps=50):
     from diffusers import AutoencoderKL
@@ -92,7 +117,9 @@ def main():
     parser.add_argument('--timesteps', type=int, default=1000)
     parser.add_argument('--save_every', type=int, default=50)
     parser.add_argument('--sample_every', type=int, default=50)
-    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--num_workers', type=int, default=8)  # Higher for H100
+    parser.add_argument('--compile', action='store_true', help='Use torch.compile for faster training')
+    parser.add_argument('--grad_accum', type=int, default=1, help='Gradient accumulation steps')
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--fresh_start', action='store_true')
     
@@ -118,7 +145,9 @@ def main():
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True,
-        drop_last=True
+        drop_last=True,
+        persistent_workers=True if args.num_workers > 0 else False,  # Keep workers alive between epochs
+        prefetch_factor=4 if args.num_workers > 0 else None,  # Prefetch more batches
     )
     
     model = VideoDiTV2(
@@ -130,9 +159,14 @@ def main():
         heads=args.heads,
         dim_head=args.dim_head,
         dropout=0.0,
-        num_classes=args.num_classes 
+        num_classes=args.num_classes
     ).to(device)
-    
+
+    # torch.compile for significant speedup (PyTorch 2.0+)
+    if args.compile:
+        print("Compiling model with torch.compile (this may take a few minutes on first run)...")
+        model = torch.compile(model, mode="reduce-overhead")
+
     diffusion = GaussianDiffusion(timesteps=args.timesteps, beta_schedule='cosine')
     
     optimizer = torch.optim.AdamW(
@@ -183,16 +217,19 @@ def main():
 
             with autocast():
                 loss = diffusion.training_losses(model, latents, t, y=y)
+                loss = loss / args.grad_accum  # Scale loss for accumulation
 
-            optimizer.zero_grad()
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
 
-            scheduler.step()
-            ema.update()
+            # Only step optimizer after accumulating gradients
+            if (step + 1) % args.grad_accum == 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                scheduler.step()
+                ema.update()
 
             epoch_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}")
@@ -225,8 +262,34 @@ def main():
         # Save local epoch checkpoint
         if (epoch + 1) % args.save_every == 0:
             save_path = os.path.join(args.out_dir, f"epoch_{epoch+1}.pt")
-            torch.save(ema.state_dict(), save_path) # Save EMA weights for inference
-            
+            torch.save(ema.state_dict(), save_path)  # Save EMA weights for inference
+
+        # Save full checkpoint to HuggingFace every N epochs (for spot instance recovery)
+        if (epoch + 1) % HF_CHECKPOINT_EVERY_EPOCHS == 0:
+            ckpt_name = f"checkpoint-epoch{epoch+1}.pt"
+            state = {
+                "epoch": epoch,
+                "step": global_step,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "ema": ema.state_dict(),
+            }
+            local_path = f"/tmp/{ckpt_name}"
+            torch.save(state, local_path)
+            try:
+                upload_file(
+                    path_or_fileobj=local_path,
+                    path_in_repo=ckpt_name,
+                    repo_id=REPO_ID,
+                    commit_message=f"Epoch {epoch+1} checkpoint"
+                )
+                print(f"Epoch {epoch+1} checkpoint pushed to HuggingFace")
+            except Exception as e:
+                print(f"HF Upload Failed: {e}")
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
         if (epoch + 1) % args.sample_every == 0:
             ema.apply_shadow()
             try:
